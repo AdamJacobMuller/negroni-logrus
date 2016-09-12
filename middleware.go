@@ -31,8 +31,8 @@ type Middleware struct {
 	Logger *logrus.Logger
 	// Name is the name of the application as recorded in latency metrics
 	Name   string
-	Before func(*logrus.Entry, *http.Request, string) *logrus.Entry
-	After  func(*logrus.Entry, negroni.ResponseWriter, time.Duration, string) *logrus.Entry
+	Before func(*logrus.Entry, negroni.ResponseWriter, *http.Request, string) *logrus.Entry
+	After  func(*logrus.Entry, negroni.ResponseWriter, *http.Request, time.Duration, string) *logrus.Entry
 
 	logStarting bool
 
@@ -126,7 +126,8 @@ func (m *Middleware) ServeHTTP(rw http.ResponseWriter, r *http.Request, next htt
 		entry = entry.WithField("request_id", reqID)
 	}
 
-	entry = m.Before(entry, r, remoteAddr)
+	res := rw.(negroni.ResponseWriter)
+	entry = m.Before(entry, res, r, remoteAddr)
 
 	if m.logStarting {
 		entry.Info("started handling request")
@@ -135,9 +136,8 @@ func (m *Middleware) ServeHTTP(rw http.ResponseWriter, r *http.Request, next htt
 	next(rw, r)
 
 	latency := m.clock.Since(start)
-	res := rw.(negroni.ResponseWriter)
 
-	m.After(entry, res, latency, m.Name).Info("completed handling request")
+	m.After(entry, res, r, latency, m.Name).Info("completed handling request")
 }
 
 // BeforeFunc is the func type used to modify or replace the *logrus.Entry prior
@@ -149,7 +149,7 @@ type BeforeFunc func(*logrus.Entry, *http.Request, string) *logrus.Entry
 type AfterFunc func(*logrus.Entry, negroni.ResponseWriter, time.Duration, string) *logrus.Entry
 
 // DefaultBefore is the default func assigned to *Middleware.Before
-func DefaultBefore(entry *logrus.Entry, req *http.Request, remoteAddr string) *logrus.Entry {
+func DefaultBefore(entry *logrus.Entry, res negroni.ResponseWriter, req *http.Request, remoteAddr string) *logrus.Entry {
 	return entry.WithFields(logrus.Fields{
 		"request": req.RequestURI,
 		"method":  req.Method,
@@ -158,7 +158,7 @@ func DefaultBefore(entry *logrus.Entry, req *http.Request, remoteAddr string) *l
 }
 
 // DefaultAfter is the default func assigned to *Middleware.After
-func DefaultAfter(entry *logrus.Entry, res negroni.ResponseWriter, latency time.Duration, name string) *logrus.Entry {
+func DefaultAfter(entry *logrus.Entry, res negroni.ResponseWriter, req *http.Request, latency time.Duration, name string) *logrus.Entry {
 	return entry.WithFields(logrus.Fields{
 		"status":      res.Status(),
 		"text_status": http.StatusText(res.Status()),
